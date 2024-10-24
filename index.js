@@ -1,7 +1,7 @@
 import { WebSocketServer } from "ws";
 import { httpServer } from "./src/http_server/index.js";
 
-const HTTP_PORT = 8181;
+const HTTP_PORT = 3000;
 
 const ws = new WebSocketServer({ server: httpServer });
 
@@ -20,9 +20,6 @@ ws.on("connection", (socket) => {
 
   socket.on("close", () => {
     console.log("Client disconnected");
-  });
-
-  socket.on("close", () => {
     console.log("WebSocket server closed");
   });
 });
