@@ -1,55 +1,24 @@
 import { WebSocketServer } from "ws";
 import { httpServer } from "./src/http_server/index.js";
+import { WebSocketHandler } from "./utils/WebSocketHandler.js";
 
+const WS_PORT = 8181;
 const HTTP_PORT = 3000;
+class Server {
+  constructor(httpServer, port) {
+    this.port = port;
+    this.wss = new WebSocketServer({ server: httpServer });
+    this.handler = new WebSocketHandler(this.wss);
+  }
 
-const ws = new WebSocketServer({ server: httpServer });
-
-ws.on("connection", (socket) => {
-  console.log("Client connected");
-
-  socket.on("message", (message) => {
-    console.log(`Received message: ${message.toString()}`);
-    try {
-      const parsedMessage = JSON.parse(message);
-      handleMessage(ws, parsedMessage);
-    } catch (error) {
-      console.error("Invalid message:", error);
-    }
-  });
-
-  socket.on("close", () => {
-    console.log("Client disconnected");
-    console.log("WebSocket server closed");
-  });
-});
-
-function handleMessage(ws, message) {
-  switch (message.type) {
-    case "reg":
-      handleRegistration(ws, message.data);
-      break;
-    case "create_room":
-      handleCreateRoom(ws, message.data);
-      break;
-    default:
-      console.error(`Unknown message type: ${message.type}`);
+  start() {
+    this.wss.on("connection", (ws) => this.handler.handleConnection(ws));
   }
 }
 
-function handleRegistration(ws, data) {
-  console.log("Registration request:", data);
-}
+const server = new Server(httpServer, WS_PORT);
+server.start();
 
-function handleCreateRoom(ws, data) {
-  console.log("Create room request:", data);
-}
-
-console.log(`Start static http server on the ${HTTP_PORT} port!`);
 httpServer.listen(HTTP_PORT, () => {
-  console.log(`WebSocket server is running on ws://localhost:${HTTP_PORT}`);
+  console.log(`WebSocket server started on port ${HTTP_PORT}`);
 });
-
-const players = new Map();
-const rooms = new Map();
-const games = new Map();
