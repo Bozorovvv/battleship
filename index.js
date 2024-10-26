@@ -26,7 +26,6 @@ class WebSocketHandler {
         this.handleMessage(clientId, ws, parsedMessage);
       } catch (error) {
         console.error("Error parsing message:", error);
-        // this.sendError(ws, "reg", "Invalid message format");
       }
     });
 
@@ -230,7 +229,6 @@ class WebSocketHandler {
     }
 
     if (this.isCellHit(x, y, gameId, indexPlayer)) {
-      // this.sendError(ws, "attack", "Position already attacked");
       console.error("'attack'", "Position already attacked");
       return;
     }
@@ -316,21 +314,6 @@ class WebSocketHandler {
     return true;
   }
 
-  // processAttack(x, y, ships) {
-  //   for (const ship of ships) {
-  //     const shipCells = this.getShipCells(ship);
-  //     for (const cell of shipCells) {
-  //       if (cell.x === x && cell.y === y) {
-  //         const isKilled = this.isShipKilled(ship, ships);
-  //         return {
-  //           status: isKilled ? "killed" : "shot",
-  //           ship: isKilled ? ship : null,
-  //         };
-  //       }
-  //     }
-  //   }
-  //   return { status: "miss" };
-  // }
   processAttack(x, y, ships) {
     console.log("Processing attack at:", x, y);
     console.log("Ships:", JSON.stringify(ships, null, 2));
@@ -339,13 +322,11 @@ class WebSocketHandler {
       const shipCells = this.getShipCells(ship);
       console.log("Ship cells:", shipCells);
 
-      // Check if this shot hits any cell of the current ship
       const isHit = shipCells.some((cell) => cell.x === x && cell.y === y);
 
       if (isHit) {
         console.log("Hit detected on ship:", ship);
 
-        // For length 1 ships, they're killed immediately when hit
         if (ship.length === 1) {
           console.log("Length 1 ship killed");
           return {
@@ -354,7 +335,6 @@ class WebSocketHandler {
           };
         }
 
-        // For longer ships, check if all cells have been hit
         const isKilled = this.isShipKilled(ship, ships);
         console.log("Ship killed check:", isKilled);
 
@@ -368,18 +348,6 @@ class WebSocketHandler {
     console.log("Miss - no ship hit");
     return { status: "miss" };
   }
-
-  // getShipCells(ship) {
-  //   const cells = [];
-  //   const { x, y } = ship.position;
-  //   for (let i = 0; i < ship.length; i++) {
-  //     cells.push({
-  //       x: !ship.direction ? x + i : x,
-  //       y: !ship.direction ? y : y + i,
-  //     });
-  //   }
-  //   return cells;
-  // }
 
   getShipCells(ship) {
     const cells = [];
@@ -406,24 +374,6 @@ class WebSocketHandler {
     return cells;
   }
 
-  // isShipKilled(targetShip, ships) {
-  //   const shipCells = this.getShipCells(targetShip);
-  //   const allShots = Array.from(
-  //     targetShip.gameId
-  //       ? games
-  //           .get(targetShip.gameId)
-  //           .players.flatMap((p) => Array.from(p.shots))
-  //       : []
-  //   );
-
-  //   return shipCells.every((cell) =>
-  //     allShots.some((shot) => {
-  //       const [shotX, shotY] = shot.split(",").map(Number);
-  //       return shotX === cell.x && shotY === cell.y;
-  //     })
-  //   );
-  // }
-
   isShipKilled(ship, ships) {
     const game = this.findGameByShip(ship);
     if (!game) {
@@ -431,7 +381,6 @@ class WebSocketHandler {
       return false;
     }
 
-    // Find the attacking player (the one whose shots we need to check)
     const attackingPlayer = game.players.find(
       (p) => game.currentPlayer === game.players.indexOf(p)
     );
@@ -446,7 +395,6 @@ class WebSocketHandler {
     const shipCells = this.getShipCells(ship);
     console.log("Ship cells to check:", shipCells);
 
-    // Check if all cells of the ship have been hit
     const allCellsHit = shipCells.every((cell) => {
       const isHit = Array.from(attackingPlayer.shots).some((shot) => {
         const [shotX, shotY] = shot.split(",").map(Number);
@@ -496,11 +444,9 @@ class WebSocketHandler {
     const game = games.get(gameId);
     if (!game) return false;
 
-    // Get the specified player by index
     const player = game.players[indexPlayer];
     if (!player) return false;
 
-    // Check if the current player's shots contain the specified coordinates
     return player.shots.has(`${x},${y}`);
   }
 
@@ -611,7 +557,6 @@ class WebSocketHandler {
 
   handleDisconnect(clientId) {
     this.clientConnections.delete(clientId);
-    // Additional cleanup if needed
   }
 }
 
