@@ -7,7 +7,6 @@ export class PlayerController {
 
   registerPlayer(ws, data) {
     const { name, password } = JSON.parse(data);
-    console.log(name);
     if (this.players.has(name)) {
       ws.send(
         JSON.stringify({
@@ -35,6 +34,7 @@ export class PlayerController {
           id: 0,
         })
       );
+      return name;
     }
   }
 }

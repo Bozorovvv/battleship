@@ -28,7 +28,9 @@ export class WebSocketHandler {
 
     switch (type) {
       case "reg":
-        this.playerController.registerPlayer(ws, data);
+        const player = this.playerController.registerPlayer(ws, data);
+        ws.playerData = player;
+        this.roomController.broadcastRoomUpdateToAll();
         break;
       case "create_room":
         this.roomController.createRoom(ws);

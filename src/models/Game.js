@@ -36,7 +36,6 @@ export class Game {
 
     if (opponentBoard[x][y]) {
       opponentBoard[x][y] = "hit";
-      this.switchTurn();
       return "hit";
     } else {
       opponentBoard[x][y] = "miss";

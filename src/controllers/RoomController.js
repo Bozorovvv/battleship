@@ -5,6 +5,7 @@ export class RoomController {
   constructor() {
     this.rooms = new Map();
     this.games = new Map();
+    this.winners = new Map();
     this.nextRoomId = 1;
     this.nextGameId = 1;
   }
@@ -12,13 +13,75 @@ export class RoomController {
   createRoom(ws) {
     const room = new Room(this.nextRoomId++);
     this.rooms.set(room.id, room);
-    ws.send(
-      JSON.stringify({
-        type: "update_room",
-        data: JSON.stringify([{ roomId: room.id, roomUsers: room.players }]),
-        id: 0,
+
+    const roomData = Array.from(this.rooms.values())
+      .filter((room) => room.players.length > 0)
+      .map((room) => ({
+        roomId: room.id,
+        roomUsers: room.players.map((player, index) => ({
+          name: player.name,
+          index,
+        })),
+      }));
+
+    if (roomData.length > 0) {
+      ws.send(
+        JSON.stringify({
+          type: "update_room",
+          data: roomData,
+          id: 0,
+        })
+      );
+    }
+  }
+
+  broadcastRoomUpdateToAll() {
+    const roomData = Array.from(this.rooms.values()).map((room) => ({
+      roomId: room.id,
+      roomUsers: room.players.map((player, index) => ({
+        name: player.name,
+        index,
+      })),
+    }));
+
+    this.rooms.forEach((room) => {
+      room.players.forEach((playerSocket) => {
+        playerSocket.send(
+          JSON.stringify({
+            type: "update_room",
+            data: roomData,
+            id: 0,
+          })
+        );
+      });
+    });
+  }
+
+  broadcastWinnersUpdate() {
+    const winnersData = Array.from(this.winners.entries()).map(
+      ([name, wins]) => ({
+        name,
+        wins,
       })
     );
+
+    this.rooms.forEach((room) => {
+      room.players.forEach((playerSocket) => {
+        playerSocket.send(
+          JSON.stringify({
+            type: "update_winners",
+            data: winnersData,
+            id: 0,
+          })
+        );
+      });
+    });
+  }
+
+  recordWinner(playerName) {
+    const currentWins = this.winners.get(playerName) || 0;
+    this.winners.set(playerName, currentWins + 1);
+    this.broadcastWinnersUpdate();
   }
 
   addUserToRoom(ws, data) {
@@ -56,7 +119,7 @@ export class RoomController {
       return;
     }
 
-    this.broadcastRoomUpdate(room);
+    this.broadcastRoomUpdateToAll();
 
     if (room.isReady()) {
       const gameId = this.nextGameId++;
@@ -84,19 +147,5 @@ export class RoomController {
         })
       );
     }
-  }
-
-  broadcastRoomUpdate(room) {
-    const roomUpdate = {
-      type: "update_room",
-      data: JSON.parse({
-        roomId: room.id,
-        roomUsers: room.players.map((player) => player.name),
-      }),
-      id: 0,
-    };
-    room.players.forEach((playerSocket) => {
-      playerSocket.send(JSON.stringify(roomUpdate));
-    });
   }
 }
