@@ -208,7 +208,6 @@ class WebSocketHandler {
   }
 
   handleAttack(ws, data) {
-    console.log(data);
     const { gameId, x, y, indexPlayer } = JSON.parse(data);
     const game = games.get(gameId);
 
@@ -310,57 +309,166 @@ class WebSocketHandler {
       y = Math.floor(Math.random() * 10);
     } while (attackingPlayer.shots.has(`${x},${y}`));
 
-    this.handleAttack(ws, { gameId, x, y, indexPlayer });
+    this.handleAttack(ws, JSON.stringify({ gameId, x, y, indexPlayer }));
   }
 
   validateShipsPlacement(ships) {
     return true;
   }
 
+  // processAttack(x, y, ships) {
+  //   for (const ship of ships) {
+  //     const shipCells = this.getShipCells(ship);
+  //     for (const cell of shipCells) {
+  //       if (cell.x === x && cell.y === y) {
+  //         const isKilled = this.isShipKilled(ship, ships);
+  //         return {
+  //           status: isKilled ? "killed" : "shot",
+  //           ship: isKilled ? ship : null,
+  //         };
+  //       }
+  //     }
+  //   }
+  //   return { status: "miss" };
+  // }
   processAttack(x, y, ships) {
+    console.log("Processing attack at:", x, y);
+    console.log("Ships:", JSON.stringify(ships, null, 2));
+
     for (const ship of ships) {
       const shipCells = this.getShipCells(ship);
-      for (const cell of shipCells) {
-        if (cell.x === x && cell.y === y) {
-          const isKilled = this.isShipKilled(ship, ships);
+      console.log("Ship cells:", shipCells);
+
+      // Check if this shot hits any cell of the current ship
+      const isHit = shipCells.some((cell) => cell.x === x && cell.y === y);
+
+      if (isHit) {
+        console.log("Hit detected on ship:", ship);
+
+        // For length 1 ships, they're killed immediately when hit
+        if (ship.length === 1) {
+          console.log("Length 1 ship killed");
           return {
-            status: isKilled ? "killed" : "shot",
-            ship: isKilled ? ship : null,
+            status: "killed",
+            ship: ship,
           };
         }
+
+        // For longer ships, check if all cells have been hit
+        const isKilled = this.isShipKilled(ship, ships);
+        console.log("Ship killed check:", isKilled);
+
+        return {
+          status: isKilled ? "killed" : "shot",
+          ship: isKilled ? ship : null,
+        };
       }
     }
+
+    console.log("Miss - no ship hit");
     return { status: "miss" };
   }
 
+  // getShipCells(ship) {
+  //   const cells = [];
+  //   const { x, y } = ship.position;
+  //   for (let i = 0; i < ship.length; i++) {
+  //     cells.push({
+  //       x: !ship.direction ? x + i : x,
+  //       y: !ship.direction ? y : y + i,
+  //     });
+  //   }
+  //   return cells;
+  // }
+
   getShipCells(ship) {
     const cells = [];
-    const { x, y } = ship.position;
+    const pos = ship.position;
+
+    if (!pos) {
+      console.error("Ship position is undefined:", ship);
+      return cells;
+    }
+
+    // For single cell ships
+    if (ship.length === 1) {
+      return [{ x: pos.x, y: pos.y }];
+    }
+
+    // For multi-cell ships
     for (let i = 0; i < ship.length; i++) {
       cells.push({
-        x: !ship.direction ? x + i : x,
-        y: !ship.direction ? y : y + i,
+        x: ship.direction ? pos.x : pos.x + i,
+        y: ship.direction ? pos.y + i : pos.y,
       });
     }
+
     return cells;
   }
 
-  isShipKilled(targetShip, ships) {
-    const shipCells = this.getShipCells(targetShip);
-    const allShots = Array.from(
-      targetShip.gameId
-        ? games
-            .get(targetShip.gameId)
-            .players.flatMap((p) => Array.from(p.shots))
-        : []
+  // isShipKilled(targetShip, ships) {
+  //   const shipCells = this.getShipCells(targetShip);
+  //   const allShots = Array.from(
+  //     targetShip.gameId
+  //       ? games
+  //           .get(targetShip.gameId)
+  //           .players.flatMap((p) => Array.from(p.shots))
+  //       : []
+  //   );
+
+  //   return shipCells.every((cell) =>
+  //     allShots.some((shot) => {
+  //       const [shotX, shotY] = shot.split(",").map(Number);
+  //       return shotX === cell.x && shotY === cell.y;
+  //     })
+  //   );
+  // }
+
+  isShipKilled(ship, ships) {
+    const game = this.findGameByShip(ship);
+    if (!game) {
+      console.log("Game not found for ship");
+      return false;
+    }
+
+    // Find the attacking player (the one whose shots we need to check)
+    const attackingPlayer = game.players.find(
+      (p) => game.currentPlayer === game.players.indexOf(p)
     );
 
-    return shipCells.every((cell) =>
-      allShots.some((shot) => {
+    if (!attackingPlayer) {
+      console.log("Attacking player not found");
+      return false;
+    }
+
+    console.log("Checking shots:", Array.from(attackingPlayer.shots));
+
+    const shipCells = this.getShipCells(ship);
+    console.log("Ship cells to check:", shipCells);
+
+    // Check if all cells of the ship have been hit
+    const allCellsHit = shipCells.every((cell) => {
+      const isHit = Array.from(attackingPlayer.shots).some((shot) => {
         const [shotX, shotY] = shot.split(",").map(Number);
         return shotX === cell.x && shotY === cell.y;
-      })
-    );
+      });
+      console.log(`Cell ${cell.x},${cell.y} hit status:`, isHit);
+      return isHit;
+    });
+
+    console.log("All cells hit:", allCellsHit);
+    return allCellsHit;
+  }
+
+  findGameByShip(ship) {
+    for (const [gameId, game] of games.entries()) {
+      for (const player of game.players) {
+        if (player.ships.some((s) => s === ship)) {
+          return game;
+        }
+      }
+    }
+    return null;
   }
 
   getShipAtPosition(ships, x, y) {
