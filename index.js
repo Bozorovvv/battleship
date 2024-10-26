@@ -26,7 +26,7 @@ class WebSocketHandler {
         this.handleMessage(clientId, ws, parsedMessage);
       } catch (error) {
         console.error("Error parsing message:", error);
-        this.sendError(ws, "reg", "Invalid message format");
+        // this.sendError(ws, "reg", "Invalid message format");
       }
     });
 
@@ -56,15 +56,12 @@ class WebSocketHandler {
         this.handleRandomAttack(ws, message.data);
         break;
       default:
-        this.sendError(ws, "reg", "Unknown message type");
+        console.error("'reg'", "Unknown message type");
     }
   }
 
   handleRegistration(ws, data) {
     const { name, password } = JSON.parse(data);
-    console.log(name);
-    console.log(password);
-    console.log(players);
 
     if (players.has(name) && players.get(name).password !== password) {
       this.send(ws, "reg", {
@@ -100,7 +97,7 @@ class WebSocketHandler {
     const player = this.getPlayerByWs(ws);
 
     if (!player) {
-      this.sendError(ws, "create_room", "Player not found");
+      console.error("'create_room'", "Player not found");
       return;
     }
 
@@ -123,7 +120,7 @@ class WebSocketHandler {
     const room = rooms.get(indexRoom);
 
     if (!room || !player) {
-      this.sendError(ws, "add_user_to_room", "Invalid room or player");
+      console.error("'add_user_to_room'", "Invalid room or player");
       return;
     }
 
@@ -131,12 +128,12 @@ class WebSocketHandler {
       (user) => user.index === player.index
     );
     if (isPlayerInRoom) {
-      this.sendError(ws, "add_user_to_room", "You are already in this room");
+      console.error("'add_user_to_room'", "You are already in this room");
       return;
     }
 
     if (room.roomUsers.length >= 2) {
-      this.sendError(ws, "add_user_to_room", "Room is full");
+      console.error("'add_user_to_room'", "Room is full");
       return;
     }
 
@@ -179,18 +176,18 @@ class WebSocketHandler {
     const game = games.get(gameId);
 
     if (!game) {
-      this.sendError(ws, "add_ships", "Game not found");
+      console.error("'add_ships'", "Game not found");
       return;
     }
 
     const player = game.players.find((p) => p.gameId === indexPlayer);
     if (!player) {
-      this.sendError(ws, "add_ships", "Player not found in game");
+      console.error("'add_ships'", "Player not found in game");
       return;
     }
 
     if (!this.validateShipsPlacement(ships)) {
-      this.sendError(ws, "add_ships", "Invalid ships placement");
+      console.error("'add_ships'", "Invalid ships placement");
       return;
     }
 
@@ -211,11 +208,12 @@ class WebSocketHandler {
   }
 
   handleAttack(ws, data) {
+    console.log(data);
     const { gameId, x, y, indexPlayer } = JSON.parse(data);
     const game = games.get(gameId);
 
     if (!game || game.status !== "playing") {
-      this.sendError(ws, "attack", "Invalid game or game not started");
+      console.error("'attack'", "Invalid game or game not started");
       return;
     }
 
@@ -223,17 +221,18 @@ class WebSocketHandler {
     const defendingPlayer = game.players.find((p) => p.gameId !== indexPlayer);
 
     if (!attackingPlayer || !defendingPlayer) {
-      this.sendError(ws, "attack", "Players not found");
+      console.error("'attack'", "Players not found");
       return;
     }
 
     if (game.currentPlayer !== game.players.indexOf(attackingPlayer)) {
-      this.sendError(ws, "attack", "Not your turn");
+      console.error("'attack'", "Not your turn");
       return;
     }
 
-    if (this.isCellHit(x, y, gameId)) {
-      this.sendError(ws, "attack", "Position already attacked");
+    if (this.isCellHit(x, y, gameId, indexPlayer)) {
+      // this.sendError(ws, "attack", "Position already attacked");
+      console.error("'attack'", "Position already attacked");
       return;
     }
 
@@ -251,7 +250,21 @@ class WebSocketHandler {
     });
 
     if (attackResult.status === "killed") {
-      this.broadcastSurroundingMisses(game, attackResult.ship);
+      const surroundingCells = this.getSurroundingCells(attackResult.ship);
+
+      surroundingCells.forEach((cell) => {
+        if (!this.isCellHit(cell.x, cell.y, gameId, indexPlayer)) {
+          attackingPlayer.shots.add(`${cell.x},${cell.y}`);
+          game.players.forEach((p) => {
+            const playerWs = players.get(p.name).ws;
+            this.send(playerWs, "attack", {
+              position: { x: cell.x, y: cell.y },
+              currentPlayer: indexPlayer,
+              status: "miss",
+            });
+          });
+        }
+      });
 
       if (this.checkGameEnd(defendingPlayer.ships, attackingPlayer.shots)) {
         game.status = "finished";
@@ -278,7 +291,7 @@ class WebSocketHandler {
     const game = games.get(gameId);
 
     if (!game || game.status !== "playing") {
-      this.sendError(ws, "randomAttack", "Invalid game or game not started");
+      console.error("'randomAttack'", "Invalid game or game not started");
       return;
     }
 
@@ -287,7 +300,7 @@ class WebSocketHandler {
       !attackingPlayer ||
       game.currentPlayer !== game.players.indexOf(attackingPlayer)
     ) {
-      this.sendError(ws, "randomAttack", "Not your turn");
+      console.error("'randomAttack'", "Not your turn");
       return;
     }
 
@@ -309,10 +322,10 @@ class WebSocketHandler {
       const shipCells = this.getShipCells(ship);
       for (const cell of shipCells) {
         if (cell.x === x && cell.y === y) {
-          const isKilled = this.isShipKilled(ships, x, y);
+          const isKilled = this.isShipKilled(ship, ships);
           return {
             status: isKilled ? "killed" : "shot",
-            ship: isKilled ? this.getShipAtPosition(ships, x, y) : null,
+            ship: isKilled ? ship : null,
           };
         }
       }
@@ -332,13 +345,21 @@ class WebSocketHandler {
     return cells;
   }
 
-  isShipKilled(ships, hitX, hitY) {
-    const targetShip = this.getShipAtPosition(ships, hitX, hitY);
-    if (!targetShip) return false;
-
+  isShipKilled(targetShip, ships) {
     const shipCells = this.getShipCells(targetShip);
+    const allShots = Array.from(
+      targetShip.gameId
+        ? games
+            .get(targetShip.gameId)
+            .players.flatMap((p) => Array.from(p.shots))
+        : []
+    );
+
     return shipCells.every((cell) =>
-      this.isCellHit(cell.x, cell.y, targetShip.gameId)
+      allShots.some((shot) => {
+        const [shotX, shotY] = shot.split(",").map(Number);
+        return shotX === cell.x && shotY === cell.y;
+      })
     );
   }
 
@@ -363,16 +384,16 @@ class WebSocketHandler {
       );
     });
   }
-  isCellHit(x, y, gameId) {
+  isCellHit(x, y, gameId, indexPlayer) {
     const game = games.get(gameId);
     if (!game) return false;
 
-    return game.players.some((player) =>
-      Array.from(player.shots).some((shot) => {
-        const [shotX, shotY] = shot.split(",").map(Number);
-        return shotX === x && shotY === y;
-      })
-    );
+    // Get the specified player by index
+    const player = game.players[indexPlayer];
+    if (!player) return false;
+
+    // Check if the current player's shots contain the specified coordinates
+    return player.shots.has(`${x},${y}`);
   }
 
   broadcastSurroundingMisses(game, ship) {
@@ -400,15 +421,9 @@ class WebSocketHandler {
           const x = shipCell.x + dx;
           const y = shipCell.y + dy;
 
-          // Skip if outside grid
-          if (x < 0 || x >= 10 || y < 0 || y >= 10) {
-            continue;
-          }
+          if (x < 0 || x >= 10 || y < 0 || y >= 10) continue;
 
-          // Skip if it's a ship cell
-          if (shipCells.some((cell) => cell.x === x && cell.y === y)) {
-            continue;
-          }
+          if (shipCells.some((cell) => cell.x === x && cell.y === y)) continue;
 
           cells.add(`${x},${y}`);
         }
