@@ -306,7 +306,6 @@ class WebSocketHandler {
   handleAddShips(ws, data) {
     try {
       const { gameId, ships, indexPlayer } = JSON.parse(data);
-      console.log(`Adding ships for player ${indexPlayer} in game ${gameId}`);
 
       const game = games.get(gameId);
       if (!game) {
@@ -329,16 +328,11 @@ class WebSocketHandler {
       }
 
       player.ships = ships;
-      console.log(
-        `Ships added for ${player.name}. Ship count: ${ships.length}`
-      );
 
       const allShipsPlaced = game.players.every((p) => p.ships.length > 0);
-      console.log(`All ships placed: ${allShipsPlaced}`);
 
       if (allShipsPlaced) {
         game.status = "playing";
-        console.log(`Game ${gameId} starting...`);
 
         game.players.forEach((p) => {
           if (!p.isBot) {
@@ -538,20 +532,13 @@ class WebSocketHandler {
   }
 
   processAttack(x, y, ships) {
-    console.log("Processing attack at:", x, y);
-    console.log("Ships:", JSON.stringify(ships, null, 2));
-
     for (const ship of ships) {
       const shipCells = this.getShipCells(ship);
-      console.log("Ship cells:", shipCells);
 
       const isHit = shipCells.some((cell) => cell.x === x && cell.y === y);
 
       if (isHit) {
-        console.log("Hit detected on ship:", ship);
-
         if (ship.length === 1) {
-          console.log("Length 1 ship killed");
           return {
             status: "killed",
             ship: ship,
@@ -559,7 +546,6 @@ class WebSocketHandler {
         }
 
         const isKilled = this.isShipKilled(ship, ships);
-        console.log("Ship killed check:", isKilled);
 
         return {
           status: isKilled ? "killed" : "shot",
@@ -568,7 +554,6 @@ class WebSocketHandler {
       }
     }
 
-    console.log("Miss - no ship hit");
     return { status: "miss" };
   }
 
@@ -598,7 +583,6 @@ class WebSocketHandler {
   isShipKilled(ship, ships) {
     const game = this.findGameByShip(ship);
     if (!game) {
-      console.log("Game not found for ship");
       return false;
     }
 
@@ -607,25 +591,19 @@ class WebSocketHandler {
     );
 
     if (!attackingPlayer) {
-      console.log("Attacking player not found");
       return false;
     }
 
-    console.log("Checking shots:", Array.from(attackingPlayer.shots));
-
     const shipCells = this.getShipCells(ship);
-    console.log("Ship cells to check:", shipCells);
 
     const allCellsHit = shipCells.every((cell) => {
       const isHit = Array.from(attackingPlayer.shots).some((shot) => {
         const [shotX, shotY] = shot.split(",").map(Number);
         return shotX === cell.x && shotY === cell.y;
       });
-      console.log(`Cell ${cell.x},${cell.y} hit status:`, isHit);
       return isHit;
     });
 
-    console.log("All cells hit:", allCellsHit);
     return allCellsHit;
   }
 
