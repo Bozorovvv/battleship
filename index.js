@@ -70,6 +70,20 @@ class WebSocketHandler {
       return;
     }
 
+    if (players.has(name)) {
+      const existingPlayer = players.get(name);
+      if (
+        existingPlayer.ws &&
+        existingPlayer.ws.readyState === WebSocket.OPEN
+      ) {
+        this.send(ws, "reg", {
+          error: true,
+          errorText: "Player is already logged in",
+        });
+        return;
+      }
+    }
+
     const playerIndex = players.has(name)
       ? players.get(name).index
       : crypto.randomUUID();
