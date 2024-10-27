@@ -1,6 +1,5 @@
 # RSSchool NodeJS WebSocket Task Template
 
-Static HTTP server and base task packages. By default, the WebSocket client tries to connect to the 3000 port.
 
 ## Installation
 
