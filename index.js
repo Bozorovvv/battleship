@@ -54,6 +54,9 @@ class WebSocketHandler {
       case "randomAttack":
         this.handleRandomAttack(ws, message.data);
         break;
+      case "single_play":
+        this.handleSinglePlay(clientId, ws);
+        break;
       default:
         console.error("'reg'", "Unknown message type");
     }
@@ -184,40 +187,219 @@ class WebSocketHandler {
     }
   }
 
-  handleAddShips(ws, data) {
-    const { gameId, ships, indexPlayer } = JSON.parse(data);
-    const game = games.get(gameId);
-
-    if (!game) {
-      console.error("'add_ships'", "Game not found");
-      return;
-    }
-
-    const player = game.players.find((p) => p.gameId === indexPlayer);
+  handleSinglePlay(clientId, ws) {
+    const player = this.getPlayerByWs(ws);
     if (!player) {
-      console.error("'add_ships'", "Player not found in game");
+      console.error("'single_play'", "Player not found");
       return;
     }
 
-    if (!this.validateShipsPlacement(ships)) {
-      console.error("'add_ships'", "Invalid ships placement");
-      return;
+    const gameId = crypto.randomUUID();
+    const botName = `Bot-${crypto.randomUUID().slice(0, 4)}`;
+
+    players.set(botName, {
+      password: crypto.randomUUID(),
+      index: crypto.randomUUID(),
+      isBot: true,
+    });
+
+    const botPlayer = {
+      name: botName,
+      index: players.get(botName).index,
+      gameId: crypto.randomUUID(),
+      ships: this.generateBotShips(),
+      shots: new Set(),
+      isBot: true,
+    };
+
+    const game = {
+      id: gameId,
+      players: [
+        {
+          name: player.name,
+          index: player.index,
+          gameId: crypto.randomUUID(),
+          ships: [],
+          shots: new Set(),
+          isBot: false,
+        },
+        botPlayer,
+      ],
+      currentPlayer: 0,
+      status: "waiting",
+      isSinglePlayer: true,
+    };
+
+    games.set(gameId, game);
+
+    this.send(ws, "create_game", {
+      idGame: gameId,
+      idPlayer: game.players[0].gameId,
+      isSinglePlayer: true,
+    });
+  }
+
+  generateBotShips() {
+    const ships = [];
+    const shipLengths = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1];
+    const usedCells = new Set();
+
+    for (const length of shipLengths) {
+      let ship;
+      do {
+        ship = this.generateRandomShip(length);
+      } while (!this.isValidBotShipPlacement(ship, usedCells));
+
+      const shipCells = this.getShipCells(ship);
+      shipCells.forEach((cell) => usedCells.add(`${cell.x},${cell.y}`));
+      ships.push(ship);
     }
 
-    player.ships = ships;
+    return ships;
+  }
 
-    if (game.players.every((p) => p.ships.length > 0)) {
-      game.status = "playing";
-      game.players.forEach((p) => {
-        const playerWs = players.get(p.name).ws;
-        this.send(playerWs, "start_game", {
-          ships: p.ships,
-          currentPlayerIndex: p.gameId,
+  generateRandomShip(length) {
+    const direction = Math.random() < 0.5;
+    let x, y;
+
+    if (direction) {
+      x = Math.floor(Math.random() * 10);
+      y = Math.floor(Math.random() * (11 - length));
+    } else {
+      x = Math.floor(Math.random() * (11 - length));
+      y = Math.floor(Math.random() * 10);
+    }
+
+    return {
+      length,
+      position: { x, y },
+      direction,
+    };
+  }
+
+  isValidBotShipPlacement(ship, usedCells) {
+    const shipCells = this.getShipCells(ship);
+
+    if (
+      shipCells.some(
+        (cell) => cell.x < 0 || cell.x >= 10 || cell.y < 0 || cell.y >= 10
+      )
+    ) {
+      return false;
+    }
+
+    for (const cell of shipCells) {
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const checkX = cell.x + dx;
+          const checkY = cell.y + dy;
+          if (usedCells.has(`${checkX},${checkY}`)) {
+            return false;
+          }
+        }
+      }
+    }
+
+    return true;
+  }
+
+  handleAddShips(ws, data) {
+    try {
+      const { gameId, ships, indexPlayer } = JSON.parse(data);
+      console.log(`Adding ships for player ${indexPlayer} in game ${gameId}`);
+
+      const game = games.get(gameId);
+      if (!game) {
+        console.error("Game not found:", gameId);
+        this.sendError(ws, "add_ships", "Game not found");
+        return;
+      }
+
+      const player = game.players.find((p) => p.gameId === indexPlayer);
+      if (!player) {
+        console.error("Player not found in game:", indexPlayer);
+        this.sendError(ws, "add_ships", "Player not found in game");
+        return;
+      }
+
+      if (!this.validateShipsPlacement(ships)) {
+        console.error("Invalid ships placement");
+        this.sendError(ws, "add_ships", "Invalid ships placement");
+        return;
+      }
+
+      player.ships = ships;
+      console.log(
+        `Ships added for ${player.name}. Ship count: ${ships.length}`
+      );
+
+      const allShipsPlaced = game.players.every((p) => p.ships.length > 0);
+      console.log(`All ships placed: ${allShipsPlaced}`);
+
+      if (allShipsPlaced) {
+        game.status = "playing";
+        console.log(`Game ${gameId} starting...`);
+
+        game.players.forEach((p) => {
+          if (!p.isBot) {
+            const playerWs = players.get(p.name).ws;
+            if (playerWs && playerWs.readyState === WebSocket.OPEN) {
+              this.send(playerWs, "add_ships", {
+                success: true,
+                message: "Ships placed successfully",
+              });
+
+              this.send(playerWs, "start_game", {
+                ships: p.ships,
+                currentPlayerIndex: game.players[game.currentPlayer].gameId,
+                gameStatus: game.status,
+              });
+            } else {
+              console.error(`WebSocket not open for player ${p.name}`);
+            }
+          }
         });
-      });
 
-      this.broadcastTurn(game);
+        this.broadcastTurn(game);
+
+        if (game.players[game.currentPlayer].isBot) {
+          this.makeBotMove(game);
+        }
+      } else {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          this.send(ws, "add_ships", {
+            success: true,
+            message: "Ships placed successfully, waiting for other player",
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Error in handleAddShips:", error);
+      this.sendError(ws, "add_ships", "Internal server error");
     }
+  }
+
+  makeBotMove(game) {
+    const botPlayer = game.players.find((p) => p.isBot);
+    const humanPlayer = game.players.find((p) => !p.isBot);
+
+    let x, y;
+    do {
+      x = Math.floor(Math.random() * 10);
+      y = Math.floor(Math.random() * 10);
+    } while (botPlayer.shots.has(`${x},${y}`));
+
+    setTimeout(() => {
+      this.handleAttack(
+        null,
+        JSON.stringify({
+          gameId: game.id,
+          x,
+          y,
+          indexPlayer: botPlayer.gameId,
+        })
+      );
+    }, 1000);
   }
 
   handleAttack(ws, data) {
@@ -242,50 +424,73 @@ class WebSocketHandler {
       return;
     }
 
-    if (this.isCellHit(x, y, gameId, indexPlayer)) {
+    if (this.isCellHit(x, y, gameId, game.players.indexOf(attackingPlayer))) {
       console.error("'attack'", "Position already attacked");
       return;
     }
 
     attackingPlayer.shots.add(`${x},${y}`);
-
     const attackResult = this.processAttack(x, y, defendingPlayer.ships);
 
     game.players.forEach((p) => {
-      const playerWs = players.get(p.name).ws;
-      this.send(playerWs, "attack", {
-        position: { x, y },
-        currentPlayer: indexPlayer,
-        status: attackResult.status,
-      });
+      if (!p.isBot) {
+        const playerWs = players.get(p.name).ws;
+        if (playerWs) {
+          this.send(playerWs, "attack", {
+            position: { x, y },
+            currentPlayer: indexPlayer,
+            status: attackResult.status,
+          });
+        }
+      }
     });
 
     if (attackResult.status === "killed") {
       const surroundingCells = this.getSurroundingCells(attackResult.ship);
 
       surroundingCells.forEach((cell) => {
-        if (!this.isCellHit(cell.x, cell.y, gameId, indexPlayer)) {
+        if (
+          !this.isCellHit(
+            cell.x,
+            cell.y,
+            gameId,
+            game.players.indexOf(attackingPlayer)
+          )
+        ) {
           attackingPlayer.shots.add(`${cell.x},${cell.y}`);
+
           game.players.forEach((p) => {
-            const playerWs = players.get(p.name).ws;
-            this.send(playerWs, "attack", {
-              position: { x: cell.x, y: cell.y },
-              currentPlayer: indexPlayer,
-              status: "miss",
-            });
+            if (!p.isBot) {
+              const playerWs = players.get(p.name).ws;
+              if (playerWs) {
+                this.send(playerWs, "attack", {
+                  position: { x: cell.x, y: cell.y },
+                  currentPlayer: indexPlayer,
+                  status: "miss",
+                });
+              }
+            }
           });
         }
       });
 
       if (this.checkGameEnd(defendingPlayer.ships, attackingPlayer.shots)) {
         game.status = "finished";
+
         game.players.forEach((p) => {
-          const playerWs = players.get(p.name).ws;
-          this.send(playerWs, "finish", {
-            winPlayer: attackingPlayer.gameId,
-          });
+          if (!p.isBot) {
+            const playerWs = players.get(p.name).ws;
+            if (playerWs) {
+              this.send(playerWs, "finish", {
+                winPlayer: attackingPlayer.gameId,
+              });
+            }
+          }
         });
-        this.updateWinners(attackingPlayer.name);
+
+        if (!attackingPlayer.isBot) {
+          this.updateWinners(attackingPlayer.name);
+        }
         return;
       }
     }
@@ -295,6 +500,10 @@ class WebSocketHandler {
     }
 
     this.broadcastTurn(game);
+
+    if (game.status === "playing" && game.players[game.currentPlayer].isBot) {
+      this.makeBotMove(game);
+    }
   }
 
   handleRandomAttack(ws, data) {
@@ -372,12 +581,10 @@ class WebSocketHandler {
       return cells;
     }
 
-    // For single cell ships
     if (ship.length === 1) {
       return [{ x: pos.x, y: pos.y }];
     }
 
-    // For multi-cell ships
     for (let i = 0; i < ship.length; i++) {
       cells.push({
         x: ship.direction ? pos.x : pos.x + i,
@@ -506,10 +713,14 @@ class WebSocketHandler {
 
   broadcastTurn(game) {
     game.players.forEach((p) => {
-      const playerWs = players.get(p.name).ws;
-      this.send(playerWs, "turn", {
-        currentPlayer: game.players[game.currentPlayer].gameId,
-      });
+      if (!p.isBot) {
+        const playerWs = players.get(p.name).ws;
+        if (playerWs) {
+          this.send(playerWs, "turn", {
+            currentPlayer: game.players[game.currentPlayer].gameId,
+          });
+        }
+      }
     });
   }
 
